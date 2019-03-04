@@ -254,12 +254,20 @@ def ingredients_handler(index, aindex, insertSql, x, item):
     # python 中没有switch语句
     html = pq(x["ID"]).text()
 
-    # 会按照解析的顺序往里插入
-    if (
-            html == "Herbs Contained in This Formula (Chinese)" or html == "Herbs Contained in This Formula (Chinese Pinyin)"
-            or html == "Candidate Target Genes" or html == "Diseases Associated with This Formula"):
+    # 会按照解析的顺序往里插入 ingredients 有些特殊
+    if (html == "Formulas Containing This Ingredient" or html == "External Link to PubChem" or html == "External Link to ChEMBL"
+            or html == "References" or html == "Herbs Containing This Ingredient" or html == "Diseases Associated with This Ingredient"
+                or html == "Candidate Target Genes"):
         if x["Item Name"] == "":
             insertSql += "'',"
+            return insertSql
+
+        if x["Item Name"] == "N/A":
+            insertSql += "N/A"
+            return insertSql
+
+        if x["Item Name"] == "This ingredient hao no candidate target genes with the prediction confidence index more than 0.80.":
+            insertSql += "This ingredient hao no candidate target genes with the prediction confidence index more than 0.80."
             return insertSql
         html = x["Item Name"]
         div = pq(html)
@@ -334,7 +342,13 @@ def main():
 
     ingredients_config = {
         "tableName": "ingredients",
-        "keys": [],
+        "keys": ["Ingredient Name in English", "2D-Structure", "Molecular Formula", "Molecular Weight", "ALogP", "LogD",
+                 "Molecular Solubility", "Molecular Volume", "Molecular Surface Area", "Molecular Polar Surface Area",
+                 "Num Rotatable Bonds", "Num H Acceptors", "Num H Donors", "ADMET Absorption Level", "ADMET BBB Level", "ADMET BBB",
+                 "ADMET Solubility", "ADMET Solubility Level", "ADMET Hepatotoxicity", "ADMET Hepatotoxicity Probability",
+                 "ADMET CYP2D6", "ADMET CYP2D6 Probability", "ADMET PPB Level", "Druglikeness Weight", "Druglikeness Grading",
+                 "Candidate Target Genes", "Diseases Associated with This Ingredient", "CAS No.", "External Link to PubChem",
+                 "External Link to ChEMBL", "References", "Herbs Containing This Ingredient", "Formulas Containing This Ingredient"],
         "startPattern": "\s*data : \\[$",
         "endPattern": "\s*\\],$",
         "count": 25
@@ -342,9 +356,9 @@ def main():
 
     # excelutils.read_excel_by_col(excel_path, handler, diseases_config, )
     # excelutils.read_excel_by_col(excel_path, handler, herbs_config, herb_handler)
-    excelutils.read_excel_by_col(excel_path, handler, formulas_config, formulas_handler)
+    # excelutils.read_excel_by_col(excel_path, handler, formulas_config, formulas_handler)
     # excelutils.read_excel_by_col(excel_path, handler, target_config, target_handler)
-    # excelutils.read_excel_by_col(excel_path, handler, ingredients_config, ingredients_handler())
+    excelutils.read_excel_by_col(excel_path, handler, ingredients_config, ingredients_handler)
 
 
 main()
