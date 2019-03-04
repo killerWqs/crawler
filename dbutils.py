@@ -14,11 +14,11 @@ POOL = PooledDB(
     setsession=[],  # 开始会话前执行的命令列表。如：["set datestyle to ...", "set time zone ..."]
     ping=0,
     # ping MySQL服务端，检查是否服务可用。# 如：0 = None = never, 1 = default = whenever it is requested, 2 = when a cursor is created, 4 = when a query is executed, 7 = always
-    host='127.0.0.1',
+    host='10.0.21.127',
     port=3306,
-    user='root',
-    password='wqsqzj',
-    database='base_terminal',
+    user='sa',
+    password='abc,123.ABC',
+    database='zhongyaoku',
     charset='utf8'
 )
 
@@ -37,7 +37,8 @@ def insert(insertSql):
     # cursor = pymysql.cursors.DictCursor 配置查询数据库返回值的数据类型，DictCursor 返回的是列表套字典，如下
     # [{'name': 'jasonlv', 'id': 1, 'passwd': '123'}]
     cursor = conn.cursor(cursor=pymysql.cursors.DictCursor)
-    cursor.execute(insertSql)
-
-    result = cursor.fetchall()
+    result = cursor.execute(insertSql)
+    conn.commit()
+    print(result)
+    cursor.close()
     conn.close()

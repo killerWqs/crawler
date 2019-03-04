@@ -4,12 +4,15 @@ import json
 import excelutils
 import dbutils
 from pyquery import PyQuery as pq
+
 # print('hello world')
 
 list = []
 prefix = "http://www.nrc.ac.cn:9090"
+
+
 # handler 是不一样的，存的数据库也是不一样的
-def handler(url, config):
+def handler(url, config, count, currentIndex, type_handler):
     global list
     url = prefix + url
     html = request.urlopen(url).read().decode("utf-8")
@@ -30,7 +33,11 @@ def handler(url, config):
                 break
             else:
                 # 提取出双引号之间的数据
-                result = re.findall("\"(.+?)\"", line)
+                # 如果为空格则跳过
+                if line.strip() == "":
+                    continue
+                result = re.findall("\"(.*?)\"", line)
+
                 item[result[0]] = result[1]
                 item[result[2]] = result[3]
                 data.append(item)
@@ -41,15 +48,15 @@ def handler(url, config):
     # result = json.loads(data)
     list.append(data)
     # 存入数据库
-    if config["count"] == len(list):
+    if config["count"] == len(list) or currentIndex == count - 1:
         insertSql = "insert into " + config["tableName"] + "("
         # 还是需要keys的因为keys
         index = 0
         for key in config["keys"]:
             if index == len(config["keys"]) - 1:
-                insertSql += (key + ") values")
+                insertSql += ("`" + key + "`) values")
             else:
-                insertSql += (key + ",")
+                insertSql += ("`" + key + "`,")
             index += 1
 
         index = 0
@@ -62,58 +69,282 @@ def handler(url, config):
             insertSql += "("
             aindex = 0
             for x in item:
-                container = ""
-                def iterator(index, elem):
-                    nonlocal container
-                    container += elem.text
-
-                if aindex == 0:
-                    html = pq(x["Item Name"])
-                    text = html("div").text()
-                    insertSql += ("'" + text + "',")
-
-                    aindex += 1
-                else:
-                    # 从第三个开始格式不一样了
-                    html = x["Item Name"]
-                    div = pq(html)
-                    a_tags = div("a")
-                    a_tags.each(iterator)
-                    if aindex == len(item) - 1:
-                        if index == len(list) - 1:
-                            insertSql += ("'" + container + "');")
-                        else:
-                            insertSql += ("'" + container + "'),")
-                    else:
-                        insertSql += ("'" + container + "',")
-
-                    aindex += 1
-                    container = ""
+                # 这都是值传递，问题来了，怎么搞，可以传对象啊，感觉好蠢
+                insertSql = type_handler(index, aindex, insertSql, x, item)
+                aindex += 1
             index += 1
 
         dbutils.insert(insertSql)
         list = []
 
 
+def disease_handler(index, aindex, insertSql, x, item):
+    container = ""
+
+    def iterator(index, elem):
+        nonlocal container
+        container += re.sub("'", "\\'", elem.text)
+
+    # 这里需要提取出来
+    if aindex == 0:
+        # item name中 可能有单引号
+        html = pq(x["Item Name"])
+        text = html("div").text()
+        insertSql += ("'" + re.sub("'", "\\'", text) + "',")
+
+    else:
+        # 从第三个开始格式不一样了
+        html = x["Item Name"]
+        div = pq(html)
+        a_tags = div("a")
+        a_tags.each(iterator)
+        if aindex == len(item) - 1:
+            if index == len(list) - 1:
+                insertSql += ("'" + container + "');")
+            else:
+                insertSql += ("'" + container + "'),")
+        else:
+            insertSql += ("'" + container + "',")
+
+        return insertSql
+
+
+# index 为25长度的容器的遍历顺序， aindex为item的遍历顺序， x为item的字段， item为list的成员
+# python 没有包装对象
+def herb_handler(index, aindex, insertSql, x, item):
+    container = ""
+
+    def iterator(index, elem):
+        nonlocal container
+        if elem.text is not None:
+            container += re.sub("'", "\\'", elem.text)
+
+    # 并不需要aindex
+    # python 中没有switch语句
+    html = pq(x["ID"]).text()
+
+    # 会按照解析的顺序往里插入
+    if (html == "Components" or html == "Candidate Target Genes"
+            or html == "Diseases Associated with This Herb" or html == "Formulas Containing This Herb"):
+        if x["Item Name"] == "":
+            insertSql += "'',"
+            return insertSql
+        html = x["Item Name"]
+        div = pq(html)
+        a_tags = div("a")
+        a_tags.each(iterator)
+        if aindex == len(item) - 1:
+            if index == len(list) - 1:
+                insertSql += ("'" + container + "');")
+            else:
+                insertSql += ("'" + container + "'),")
+        else:
+            insertSql += ("'" + container + "',")
+        return insertSql
+    else:
+        if x["Item Name"] == "":
+            insertSql += "'',"
+            return insertSql
+        html = pq(x["Item Name"])
+        text = html("div").text()
+        if text is not None:
+            insertSql += ("'" + re.sub("'", "\\'", text) + "',")
+        else:
+            insertSql += "'',"
+
+        return insertSql
+
+def formulas_handler(index, aindex, insertSql, x, item):
+    container = ""
+
+    def iterator(index, elem):
+        nonlocal container
+        if elem.text is not None:
+            container += re.sub("'", "\\'", elem.text)
+
+    # 并不需要aindex
+    # python 中没有switch语句
+    html = pq(x["ID"]).text()
+
+    # 会按照解析的顺序往里插入
+    if (html == "Herbs Contained in This Formula (Chinese)" or html == "Herbs Contained in This Formula (Chinese Pinyin)"
+            or html == "Candidate Target Genes" or html == "Diseases Associated with This Formula"):
+        if x["Item Name"] == "":
+            insertSql += "'',"
+            return insertSql
+        html = x["Item Name"]
+        div = pq(html)
+        a_tags = div("a")
+        a_tags.each(iterator)
+        if aindex == len(item) - 1:
+            if index == len(list) - 1:
+                insertSql += ("'" + container + "');")
+            else:
+                insertSql += ("'" + container + "'),")
+        else:
+            insertSql += ("'" + container + "',")
+        return insertSql
+    else:
+        if x["Item Name"] == "":
+            insertSql += "'',"
+            return insertSql
+        html = pq(x["Item Name"])
+        text = html("div").text()
+        if text is not None:
+            insertSql += ("'" + re.sub("'", "\\'", text) + "',")
+        else:
+            insertSql += "'',"
+
+        return insertSql
+
+def target_handler(index, aindex, insertSql, x, item):
+    container = ""
+
+    def iterator(index, elem):
+        nonlocal container
+        if elem.text is not None:
+            container += re.sub("'", "\\'", elem.text)
+
+    # 并不需要aindex
+    # python 中没有switch语句
+    html = pq(x["ID"]).text()
+
+    # 会按照解析的顺序往里插入
+    if (
+            html == "Herbs Contained in This Formula (Chinese)" or html == "Herbs Contained in This Formula (Chinese Pinyin)"
+            or html == "Candidate Target Genes" or html == "Diseases Associated with This Formula"):
+        if x["Item Name"] == "":
+            insertSql += "'',"
+            return insertSql
+        html = x["Item Name"]
+        div = pq(html)
+        a_tags = div("a")
+        a_tags.each(iterator)
+        if aindex == len(item) - 1:
+            if index == len(list) - 1:
+                insertSql += ("'" + container + "');")
+            else:
+                insertSql += ("'" + container + "'),")
+        else:
+            insertSql += ("'" + container + "',")
+        return insertSql
+    else:
+        if x["Item Name"] == "":
+            insertSql += "'',"
+            return insertSql
+        html = pq(x["Item Name"])
+        text = html("div").text()
+        if text is not None:
+            insertSql += ("'" + re.sub("'", "\\'", text) + "',")
+        else:
+            insertSql += "'',"
+
+        return insertSql
+
+
+def ingredients_handler(index, aindex, insertSql, x, item):
+    container = ""
+
+    def iterator(index, elem):
+        nonlocal container
+        if elem.text is not None:
+            container += re.sub("'", "\\'", elem.text)
+
+    # 并不需要aindex
+    # python 中没有switch语句
+    html = pq(x["ID"]).text()
+
+    # 会按照解析的顺序往里插入
+    if (
+            html == "Herbs Contained in This Formula (Chinese)" or html == "Herbs Contained in This Formula (Chinese Pinyin)"
+            or html == "Candidate Target Genes" or html == "Diseases Associated with This Formula"):
+        if x["Item Name"] == "":
+            insertSql += "'',"
+            return insertSql
+        html = x["Item Name"]
+        div = pq(html)
+        a_tags = div("a")
+        a_tags.each(iterator)
+        if aindex == len(item) - 1:
+            if index == len(list) - 1:
+                insertSql += ("'" + container + "');")
+            else:
+                insertSql += ("'" + container + "'),")
+        else:
+            insertSql += ("'" + container + "',")
+        return insertSql
+    else:
+        if x["Item Name"] == "":
+            insertSql += "'',"
+            return insertSql
+        html = pq(x["Item Name"])
+        text = html("div").text()
+        if text is not None:
+            insertSql += ("'" + re.sub("'", "\\'", text) + "',")
+        else:
+            insertSql += "'',"
+
+        return insertSql
+
 def iterator(index, elem):
     print(elem.text)
 
 
 def main():
-    excel_path = "C:\\Users\\12494\\Desktop\\diseases.xlsx"
+    excel_path = "C:\\Users\\Administrator\\Desktop\\中药库.xlsx"
     # 无法通用处理
-    herbs_config = {
-        "tableName": "herbs",
-        "keys": ["disease_name", "disease_genes", "herbs_associated_with_this_disease", "formulas_associated_with_this_disease"],
+    diseases_config = {
+        "tableName": "diseases",
+        "keys": ["disease_name", "disease_genes", "herbs_associated_with_this_disease",
+                 "formulas_associated_with_this_disease"],
         "startPattern": "\s*data : \\[$",
         "endPattern": "\s*\\],$",
-        "count": 50
+        "count": 25
     }
-    excelutils.read_excel_by_col(excel_path, handler, herbs_config)
-    # excelutils.read_excel_by_col(excel_path, handler)
-    # excelutils.read_excel_by_col(excel_path, handler)
-    # excelutils.read_excel_by_col(excel_path, handler)
-    # excelutils.read_excel_by_col(excel_path, handler)
+
+    herbs_config = {
+        "tableName": "herbs",
+        "keys": ["herb_name_in_chinese", "herb_name_in_pinyin", "herb_name_in_ladin", "type", "description_in_chinese",
+                 "description_in_english", "habitat_in_chinese", "habitat_in_english", "collection_time", "appearance",
+                 "specifications", "components", "property", "flavor", "meridian_tropism", "indications",
+                 "candidate_target_genes", "database_cross_references", "diseases_associated_with_this_herb",
+                 "formulas_containing_this_herb"],
+        "startPattern": "\s*data : \\[$",
+        "endPattern": "\s*\\],$",
+        "count": 25
+    }
+
+    formulas_config = {
+        "tableName": "formulas",
+        "keys": ["formula_name_in_chinese", "formula_name_in_pinyin", "dosage_form", "herbs_contained_in_this_formula_(Chinese)",
+                 "herbs_contained_in_this_formula_(Chinese Pinyin)", "administration", "type", "syndromes_in_chinese", "syndromes_in_english",
+                 "indications_in_chinese", "indications_in_english", "candidate_target_genes", "diseases_associated_with_this_formula"],
+        "startPattern": "\s*data : \\[$",
+        "endPattern": "\s*\\],$",
+        "count": 25
+    }
+
+    target_config = {
+        "tableName": "target",
+        "keys": [],
+        "startPattern": "\s*data : \\[$",
+        "endPattern": "\s*\\],$",
+        "count": 25
+    }
+
+    ingredients_config = {
+        "tableName": "ingredients",
+        "keys": [],
+        "startPattern": "\s*data : \\[$",
+        "endPattern": "\s*\\],$",
+        "count": 25
+    }
+
+    # excelutils.read_excel_by_col(excel_path, handler, diseases_config, )
+    # excelutils.read_excel_by_col(excel_path, handler, herbs_config, herb_handler)
+    excelutils.read_excel_by_col(excel_path, handler, formulas_config, formulas_handler)
+    # excelutils.read_excel_by_col(excel_path, handler, target_config, target_handler)
+    # excelutils.read_excel_by_col(excel_path, handler, ingredients_config, ingredients_handler())
 
 
 main()
